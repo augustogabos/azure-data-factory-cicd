@@ -1,0 +1,99 @@
+parameters:
+- name: datafactoryRgName
+- name: resourceManagerConnection
+- name: location
+- name: subscriptionId
+- name: subscription
+- name: dataFactoryNameDev
+- name: dataFactoryName
+- name: storageAccountName
+- name: blobContainerName
+- name: StorageURL
+- name: StorageSASToken
+- name: automatePublish
+  type: boolean
+  default: false
+
+steps:
+- task: DownloadPipelineArtifact@2
+  displayName: Download do artefato ArmTemplate
+  inputs:
+    buildType: 'current'
+    artifactName: 'dropARM'
+    targetPath: '$(Build.ArtifactStagingDirectory)'
+
+- task: AzureFileCopy@5
+  displayName: 'Copy ARMTemplates to Storage Account'
+  inputs:
+    SourcePath: '$(Build.ArtifactStagingDirectory)/ARMTemplate'
+    azureSubscription: ${{ parameters.subscription }}
+    Destination: AzureBlob
+    storage: ${{ parameters.storageAccountName }}
+    ContainerName: '${{ parameters.blobContainerName }}'
+
+- task: AzurePowerShell@5
+  displayName: 'Script Pré-Deployment'
+  inputs:
+    azureSubscription: ${{ parameters.subscription }}
+    ScriptType: FilePath
+    ScriptPath: '$(Build.ArtifactStagingDirectory)/ArmTemplate/PrePostDeploymentScript.ps1'
+    ScriptArguments: -armTemplate $(Build.ArtifactStagingDirectory)/ARMTemplate/ARMTemplateForFactory.json -ResourceGroupName ${{ parameters.datafactoryRgName }} -DataFactoryName ${{ parameters.dataFactoryName }} -predeployment $true -deleteDeployment $false
+    azurePowerShellVersion: LatestVersion
+    workingDirectory: $(Build.ArtifactStagingDirectory)
+    pwsh: true
+
+- task: AzurePowerShell@5
+  displayName: 'Remove Resource Group Lock'
+  inputs:
+    azureSubscription: ${{ parameters.subscription }}
+    ScriptType: 'FilePath'
+    ScriptPath: '$(System.DefaultWorkingDirectory)/ADF/Scripts/verifyResourceLock.ps1'
+    ScriptArguments: '-removeLock "True" -ResourceGroupName ${{ parameters.datafactoryRgName }}'
+    azurePowerShellVersion: 'LatestVersion'
+    pwsh: true
+
+- task: AzureResourceManagerTemplateDeployment@3
+  displayName: ARM Template - Deploy do ADF ${{ parameters.dataFactoryName }}
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: ${{ parameters.resourceManagerConnection }}
+    subscriptionId: ${{ parameters.subscriptionId }}
+    action: 'Create Or Update Resource Group'
+    resourceGroupName: ${{ parameters.datafactoryRgName }}
+    location: ${{ parameters.location }}
+    templateLocation: 'Linked artifact'
+    csmFile: '$(Build.ArtifactStagingDirectory)/ARMTemplate/linkedTemplates/ArmTemplate_master.json'
+    csmParametersFile: '$(Build.ArtifactStagingDirectory)/ARMTemplate/linkedTemplates/ArmTemplateParameters_master.json'
+    overrideParameters: '-factoryName ${{ parameters.dataFactoryName }} -containerUri ${{ parameters.StorageURL }} -containerSasToken ${{ parameters.StorageSASToken }}'
+    deploymentMode: 'Incremental'
+
+- task: AzurePowerShell@5
+  displayName: 'Script Pos-Deployment'
+  inputs:
+    azureSubscription: ${{ parameters.subscription }}
+    ScriptType: 'FilePath'
+    ScriptPath: '$(Build.ArtifactStagingDirectory)/ArmTemplate/PrePostDeploymentScript.ps1'
+    ScriptArguments: '-armTemplate $(Build.ArtifactStagingDirectory)/ARMTemplate/ARMTemplateForFactory.json -ResourceGroupName ${{ parameters.datafactoryRgName }} -DataFactoryName ${{ parameters.dataFactoryName }} -predeployment $false -deleteDeployment $true'
+    azurePowerShellVersion: 'LatestVersion'
+    pwsh: true
+
+- ${{ if eq(parameters.automatePublish, 'true') }}:
+  - task: AzurePowerShell@5
+    displayName: 'Automate Publish'
+    inputs:
+      azureSubscription: ${{ parameters.subscription }}
+      ScriptType: 'FilePath'
+      ScriptPath: '$(System.DefaultWorkingDirectory)/ADF/Scripts/UpdateLastCommitId.ps1'
+      ScriptArguments: '-ResourceGroupName ${{ parameters.datafactoryRgName }} -DataFactoryName ${{ parameters.dataFactoryName }} -LastCommitId $(Build.SourceVersion)'
+      azurePowerShellVersion: 'LatestVersion'
+      pwsh: true
+
+- task: AzurePowerShell@5
+  displayName: 'Create Resource Group Lock'
+  inputs:
+    azureSubscription: ${{ parameters.subscription }}
+    ScriptType: 'FilePath'
+    ScriptPath: '$(System.DefaultWorkingDirectory)/ADF/Scripts/verifyResourceLock.ps1'
+    ScriptArguments: '-newLock "$(NewAzResourceLock)" -ResourceGroupName ${{ parameters.datafactoryRgName }} -LockLevel $(LockLevel) -LockNotes $(LockNotes) -LockName $(LockName)'
+    azurePowerShellVersion: 'LatestVersion'
+    pwsh: true

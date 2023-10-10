@@ -1,0 +1,68 @@
+trigger: 
+  - master
+
+pool: 
+  vmImage: 'windows-latest'
+    
+variables:
+  - group: kv-group
+  - name: subscriptionId
+    value: '--'
+  - name: serviceConnection
+    value: '--'
+  - name: dataFactoryNameDev
+    value: '--'
+  - name: dataFactoryNamePrd
+    value: '--'
+  - name: datafactoryRgName
+    value: '--'
+  - name: dataFactoryID
+    value: '--'
+  - name: blobContainerName
+    value: '--'
+  - name: storageAccountName
+    value: '--'
+  - name: location
+    value: '--'
+  - name: NewAzResourceLock
+    value: 'False'
+  - name: LockLevel
+    value: '--'
+  - name: LockNotes
+    value: '--'
+  - name: LockName
+    value: '--'
+
+steps:
+- template: Template/build-adf.yml
+  parameters: 
+    devDataFactoryID: $(dataFactoryID)
+
+- template: Template/deploy-adf.yml
+  parameters:
+    datafactoryRgName: $(datafactoryRgName)
+    resourceManagerConnection: $(serviceConnection)
+    location: $(location)
+    subscriptionId: $(subscriptionId)
+    subscription: $(serviceConnection)
+    dataFactoryName: $(dataFactoryNameDev)
+    dataFactoryNameDev: $(dataFactoryNameDev)
+    storageAccountName: $(storageAccountName)
+    blobContainerName: $(blobContainerName)
+    StorageURL: $(AzureFileCopy.StorageContainerUri)
+    StorageSASToken: $(AzureFileCopy.StorageContainerSasToken)
+    automatePublish: true
+
+- template: Template/deploy-adf.yml
+  parameters:
+    datafactoryRgName: $(datafactoryRgName)
+    resourceManagerConnection: $(serviceConnection)
+    location: $(location)
+    subscriptionId: $(subscriptionId)
+    subscription: $(serviceConnection)
+    dataFactoryName: $(dataFactoryNamePrd)
+    dataFactoryNameDev: $(dataFactoryNameDev)
+    storageAccountName: $(storageAccountName)
+    blobContainerName: $(blobContainerName)
+    StorageURL: $(AzureFileCopy.StorageContainerUri)
+    StorageSASToken: $(AzureFileCopy.StorageContainerSasToken)
